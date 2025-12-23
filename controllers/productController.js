@@ -122,6 +122,7 @@ const createProduct = async (req, res) => {
       images: req.body.images || [],
       sizes: req.body.sizes || [],
       colors: req.body.colors || [],
+      stockBySize: req.body.stockBySize || {},
       stock: req.body.stock || 0,
       featured: req.body.featured || false,
       isNew: req.body.isNew || true,
@@ -153,6 +154,7 @@ const updateProduct = async (req, res) => {
       product.images = req.body.images || product.images;
       product.sizes = req.body.sizes || product.sizes;
       product.colors = req.body.colors || product.colors;
+      product.stockBySize = req.body.stockBySize || product.stockBySize;
       product.stock = req.body.stock ?? product.stock;
       product.featured = req.body.featured ?? product.featured;
       product.isNew = req.body.isNew ?? product.isNew;

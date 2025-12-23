@@ -1,5 +1,41 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
+const Product = require('../models/Product');
+
+// Helper function to decrease stock when order is placed
+const decreaseStock = async (items) => {
+  for (const item of items) {
+    const product = await Product.findById(item.product);
+    if (product) {
+      // Decrease size-specific stock
+      if (item.size && product.stockBySize && product.stockBySize.has(item.size)) {
+        const currentStock = product.stockBySize.get(item.size) || 0;
+        const newStock = Math.max(0, currentStock - item.quantity);
+        product.stockBySize.set(item.size, newStock);
+      }
+      // Decrease total stock
+      product.stock = Math.max(0, product.stock - item.quantity);
+      await product.save();
+    }
+  }
+};
+
+// Helper function to restore stock when order is cancelled
+const restoreStock = async (items) => {
+  for (const item of items) {
+    const product = await Product.findById(item.product);
+    if (product) {
+      // Restore size-specific stock
+      if (item.size && product.stockBySize) {
+        const currentStock = product.stockBySize.get(item.size) || 0;
+        product.stockBySize.set(item.size, currentStock + item.quantity);
+      }
+      // Restore total stock
+      product.stock = product.stock + item.quantity;
+      await product.save();
+    }
+  }
+};
 
 // @desc    Create guest order (no login required)
 // @route   POST /api/orders/guest
@@ -38,6 +74,10 @@ const createGuestOrder = async (req, res) => {
     });
 
     const createdOrder = await order.save();
+    
+    // Decrease stock after successful order
+    await decreaseStock(items);
+    
     res.status(201).json(createdOrder);
   } catch (error) {
     console.error(error);
@@ -96,6 +136,9 @@ const createOrder = async (req, res) => {
     });
 
     const createdOrder = await order.save();
+
+    // Decrease stock after successful order
+    await decreaseStock(items);
 
     // Clear user's cart after successful order
     await Cart.findOneAndUpdate(
@@ -204,6 +247,11 @@ const updateOrderStatus = async (req, res) => {
       if (status === 'delivered' && order.paymentMethod === 'cod') {
         order.isPaid = true;
         order.paidAt = Date.now();
+      }
+
+      // If cancelled, restore stock
+      if (status === 'cancelled' && order.status !== 'cancelled') {
+        await restoreStock(order.items);
       }
 
       const updatedOrder = await order.save();
