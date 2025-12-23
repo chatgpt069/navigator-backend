@@ -1,0 +1,214 @@
+const Order = require('../models/Order');
+const Cart = require('../models/Cart');
+
+// @desc    Create new order
+// @route   POST /api/orders
+// @access  Private
+const createOrder = async (req, res) => {
+  try {
+    const { shippingAddress, paymentMethod, items, itemsTotal, shippingPrice, taxPrice, totalAmount } = req.body;
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({ message: 'No order items' });
+    }
+
+    const order = new Order({
+      user: req.user._id,
+      items,
+      shippingAddress,
+      paymentMethod,
+      itemsTotal,
+      shippingPrice,
+      taxPrice,
+      totalAmount,
+      // Mock payment - automatically mark as paid for card/upi
+      isPaid: paymentMethod !== 'cod',
+      paidAt: paymentMethod !== 'cod' ? Date.now() : null,
+      paymentResult: paymentMethod !== 'cod' ? {
+        id: `MOCK_${Date.now()}`,
+        status: 'completed',
+        updateTime: new Date().toISOString()
+      } : null,
+      status: 'confirmed'
+    });
+
+    const createdOrder = await order.save();
+
+    // Clear user's cart after successful order
+    await Cart.findOneAndUpdate(
+      { user: req.user._id },
+      { items: [], totalAmount: 0 }
+    );
+
+    res.status(201).json(createdOrder);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Get user orders
+// @route   GET /api/orders
+// @access  Private
+const getMyOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .populate('items.product');
+
+    res.json(orders);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Get order by ID
+// @route   GET /api/orders/:id
+// @access  Private
+const getOrderById = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .populate('user', 'name email')
+      .populate('items.product');
+
+    if (order) {
+      // Check if user owns the order or is admin
+      if (order.user._id.toString() === req.user._id.toString() || req.user.role === 'admin') {
+        res.json(order);
+      } else {
+        res.status(403).json({ message: 'Not authorized to view this order' });
+      }
+    } else {
+      res.status(404).json({ message: 'Order not found' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Get all orders (Admin)
+// @route   GET /api/orders/all
+// @access  Private/Admin
+const getAllOrders = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 10 } = req.query;
+    
+    let query = {};
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const orders = await Order.find(query)
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Order.countDocuments(query);
+
+    res.json({
+      orders,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+      total
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Update order status (Admin)
+// @route   PUT /api/orders/:id/status
+// @access  Private/Admin
+const updateOrderStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (order) {
+      order.status = status;
+      
+      if (status === 'delivered') {
+        order.deliveredAt = Date.now();
+      }
+
+      // If COD and delivered, mark as paid
+      if (status === 'delivered' && order.paymentMethod === 'cod') {
+        order.isPaid = true;
+        order.paidAt = Date.now();
+      }
+
+      const updatedOrder = await order.save();
+      res.json(updatedOrder);
+    } else {
+      res.status(404).json({ message: 'Order not found' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Get order stats (Admin)
+// @route   GET /api/orders/stats
+// @access  Private/Admin
+const getOrderStats = async (req, res) => {
+  try {
+    const totalOrders = await Order.countDocuments();
+    const pendingOrders = await Order.countDocuments({ status: 'pending' });
+    const shippedOrders = await Order.countDocuments({ status: 'shipped' });
+    const deliveredOrders = await Order.countDocuments({ status: 'delivered' });
+    
+    const revenueResult = await Order.aggregate([
+      { $match: { isPaid: true, status: { $ne: 'cancelled' } } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+    
+    const totalRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+
+    res.json({
+      totalOrders,
+      pendingOrders,
+      shippedOrders,
+      deliveredOrders,
+      totalRevenue
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Delete order (Admin)
+// @route   DELETE /api/orders/:id
+// @access  Private/Admin
+const deleteOrder = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (order) {
+      await Order.deleteOne({ _id: req.params.id });
+      res.json({ message: 'Order deleted successfully' });
+    } else {
+      res.status(404).json({ message: 'Order not found' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+module.exports = {
+  createOrder,
+  getMyOrders,
+  getOrderById,
+  getAllOrders,
+  updateOrderStatus,
+  getOrderStats,
+  deleteOrder
+};
