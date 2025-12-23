@@ -2,6 +2,47 @@ const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 
+// Helper function to validate stock availability before order
+const validateStock = async (items) => {
+  const stockErrors = [];
+  
+  for (const item of items) {
+    const product = await Product.findById(item.product);
+    if (!product) {
+      stockErrors.push({ 
+        productId: item.product, 
+        name: item.name || 'Unknown Product',
+        error: 'Product not found' 
+      });
+      continue;
+    }
+    
+    let availableStock = 0;
+    
+    // Check size-specific stock
+    if (item.size && product.stockBySize && product.stockBySize.has(item.size)) {
+      availableStock = product.stockBySize.get(item.size) || 0;
+    } else {
+      availableStock = product.stock || 0;
+    }
+    
+    if (availableStock < item.quantity) {
+      stockErrors.push({
+        productId: item.product,
+        name: product.name,
+        size: item.size,
+        requested: item.quantity,
+        available: availableStock,
+        error: availableStock === 0 
+          ? `"${product.name}" (Size: ${item.size}) is out of stock`
+          : `Only ${availableStock} unit(s) of "${product.name}" (Size: ${item.size}) available`
+      });
+    }
+  }
+  
+  return stockErrors;
+};
+
 // Helper function to decrease stock when order is placed
 const decreaseStock = async (items) => {
   for (const item of items) {
@@ -50,6 +91,15 @@ const createGuestOrder = async (req, res) => {
 
     if (!guestEmail) {
       return res.status(400).json({ message: 'Email is required for guest checkout' });
+    }
+
+    // Validate stock availability before creating order
+    const stockErrors = await validateStock(items);
+    if (stockErrors.length > 0) {
+      return res.status(400).json({ 
+        message: 'Some items are no longer available in requested quantity',
+        stockErrors 
+      });
     }
 
     const order = new Order({
@@ -113,6 +163,15 @@ const createOrder = async (req, res) => {
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: 'No order items' });
+    }
+
+    // Validate stock availability before creating order
+    const stockErrors = await validateStock(items);
+    if (stockErrors.length > 0) {
+      return res.status(400).json({ 
+        message: 'Some items are no longer available in requested quantity',
+        stockErrors 
+      });
     }
 
     const order = new Order({
