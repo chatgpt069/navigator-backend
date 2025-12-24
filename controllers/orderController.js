@@ -1,6 +1,8 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
+const User = require('../models/User');
+const { sendEmail } = require('../utils/emailService');
 
 // Helper function to validate stock availability before order
 const validateStock = async (items) => {
@@ -128,6 +130,14 @@ const createGuestOrder = async (req, res) => {
     // Decrease stock after successful order
     await decreaseStock(items);
     
+    // Send order confirmation email (non-blocking)
+    sendEmail(guestEmail, 'orderConfirmation', {
+      name: shippingAddress.fullName || 'Customer',
+      order: createdOrder
+    }).catch(err => {
+      console.error('Failed to send order confirmation email:', err);
+    });
+    
     res.status(201).json(createdOrder);
   } catch (error) {
     console.error(error);
@@ -204,6 +214,17 @@ const createOrder = async (req, res) => {
       { user: req.user._id },
       { items: [], totalAmount: 0 }
     );
+
+    // Send order confirmation email (non-blocking)
+    const user = await User.findById(req.user._id);
+    if (user && user.email) {
+      sendEmail(user.email, 'orderConfirmation', {
+        name: user.name,
+        order: createdOrder
+      }).catch(err => {
+        console.error('Failed to send order confirmation email:', err);
+      });
+    }
 
     res.status(201).json(createdOrder);
   } catch (error) {
@@ -293,9 +314,10 @@ const getAllOrders = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id).populate('user', 'name email');
 
     if (order) {
+      const previousStatus = order.status;
       order.status = status;
       
       if (status === 'delivered') {
@@ -309,11 +331,34 @@ const updateOrderStatus = async (req, res) => {
       }
 
       // If cancelled, restore stock
-      if (status === 'cancelled' && order.status !== 'cancelled') {
+      if (status === 'cancelled' && previousStatus !== 'cancelled') {
         await restoreStock(order.items);
       }
 
       const updatedOrder = await order.save();
+
+      // Send status update emails (non-blocking)
+      const recipientEmail = order.isGuest ? order.guestEmail : (order.user && order.user.email);
+      const recipientName = order.isGuest ? order.shippingAddress.fullName : (order.user && order.user.name);
+      
+      if (recipientEmail) {
+        if (status === 'shipped') {
+          sendEmail(recipientEmail, 'orderShipped', {
+            name: recipientName || 'Customer',
+            order: updatedOrder
+          }).catch(err => {
+            console.error('Failed to send shipped email:', err);
+          });
+        } else if (status === 'delivered') {
+          sendEmail(recipientEmail, 'orderDelivered', {
+            name: recipientName || 'Customer',
+            order: updatedOrder
+          }).catch(err => {
+            console.error('Failed to send delivered email:', err);
+          });
+        }
+      }
+
       res.json(updatedOrder);
     } else {
       res.status(404).json({ message: 'Order not found' });
