@@ -246,7 +246,7 @@ const templates = {
             </div>
             <div class="feature">
               <span class="feature-icon">↩️</span>
-              <span>30-day easy returns</span>
+              <span>7-day easy returns</span>
             </div>
             <div class="feature">
               <span class="feature-icon">🔒</span>
