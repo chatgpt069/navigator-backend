@@ -2,7 +2,7 @@ const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 const User = require('../models/User');
-const { sendEmail } = require('../utils/emailService');
+const { sendEmail, sendAdminOrderNotification } = require('../utils/emailService');
 
 // Helper function to validate stock availability before order
 const validateStock = async (items) => {
@@ -137,6 +137,11 @@ const createGuestOrder = async (req, res) => {
     }).catch(err => {
       console.error('Failed to send order confirmation email:', err);
     });
+
+    // Send admin notification for new order (non-blocking)
+    sendAdminOrderNotification(createdOrder).catch(err => {
+      console.error('Failed to send admin notification:', err);
+    });
     
     res.status(201).json(createdOrder);
   } catch (error) {
@@ -225,6 +230,11 @@ const createOrder = async (req, res) => {
         console.error('Failed to send order confirmation email:', err);
       });
     }
+
+    // Send admin notification for new order (non-blocking)
+    sendAdminOrderNotification(createdOrder).catch(err => {
+      console.error('Failed to send admin notification:', err);
+    });
 
     res.status(201).json(createdOrder);
   } catch (error) {
