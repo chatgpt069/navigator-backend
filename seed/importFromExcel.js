@@ -108,7 +108,7 @@ const importProducts = async () => {
                     placeholderImages[(index + 1) % placeholderImages.length],
                 ],
                 sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-                colors: defaultColors.slice(0, 3 + (index % 3)),
+                colors: [], // No default colors - admin can add via panel
                 stock: 50 + Math.floor(Math.random() * 50),
                 featured: index < 4,
                 isNew: index >= data.length - 3,
