@@ -22,7 +22,7 @@ const productSchema = new mongoose.Schema({
   category: {
     type: String,
     required: [true, 'Please add a category'],
-    enum: ['t-shirts', 'shirts', 'sweatshirts', 'jeans', 'trousers', 'jackets']
+    enum: ['polo-shirts', 'knit-polo-shirts', 'zip-polo-shirts', 't-shirts', 'shirts']
   },
   images: [{
     type: String
